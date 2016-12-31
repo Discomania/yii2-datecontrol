@@ -536,5 +536,10 @@ class DateControl extends InputWidget
             ], $pluginOptions
         );
         $this->registerPlugin($this->_pluginName);
+		
+		if ($this->isWidget() && !empty($this->options[$this->_dataVar])) {
+			$this->widgetOptions['options'][$this->_dataVar] = $this->options[$this->_dataVar];
+			unset($this->options[$this->_dataVar]);
+		}
     }
 }
