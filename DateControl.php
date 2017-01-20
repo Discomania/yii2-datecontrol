@@ -3,8 +3,8 @@
 /**
  * @package   yii2-datecontrol
  * @author    Kartik Visweswaran <kartikv2@gmail.com>
- * @copyright Copyright &copy; Kartik Visweswaran, Krajee.com, 2014 - 2016
- * @version   1.9.5
+ * @copyright Copyright &copy; Kartik Visweswaran, Krajee.com, 2014 - 2017
+ * @version   1.9.6
  */
 
 namespace kartik\datecontrol;
@@ -136,7 +136,8 @@ class DateControl extends InputWidget
 
     /**
      * @var array the HTML attributes for the display input. This property is applicable and parsed only if
-     * [[autoWidget]] is `false` and [[widgetClass]] is empty or not set.
+     * [[autoWidget]] is `false` and [[widgetClass]] is empty or not set. For a widget, the [[widgetOptions]] must be
+     * used to configure the widget settings.
      */
     public $options = [];
 
@@ -157,11 +158,7 @@ class DateControl extends InputWidget
     /**
      * @inheritdoc
      */
-    protected $_pluginName = 'datecontrol';
-    /**
-     * @var string display attribute name.
-     */
-    protected $_displayAttribName;
+    public $pluginName = 'datecontrol';
     /**
      * @var Module the `datecontrol` module instance.
      */
@@ -285,8 +282,7 @@ class DateControl extends InputWidget
         }
         parent::init();
         $this->initLanguage();
-        $this->setDataVar($this->_pluginName);
-        $this->_displayAttribName = (($this->hasModel()) ? $this->attribute : $this->name) . '-' . $this->options['id'];
+        $this->setDataVar($this->pluginName);
         $this->saveOptions['id'] = $this->options['id'];
         $this->options['id'] .= '-disp';
         if ($this->isWidget()) {
@@ -307,6 +303,32 @@ class DateControl extends InputWidget
         $this->registerAssets();
         echo $this->getDisplayInput() . $this->getSaveInput();
         parent::run();
+    }
+
+    /**
+     * Gets the formatted display date value.
+     *
+     * @param string $data the input date data.
+     *
+     * @return string
+     */
+    public function getDisplayValue($data)
+    {
+        $saveDate = $data;
+        $saveFormat = $this->saveFormat;
+        $settings = $this->_doTranslate ? ArrayHelper::getValue($this->pluginOptions, 'dateSettings', []) : [];
+        $date = static::getTimestamp($saveDate, $saveFormat, $this->saveTimezone, $settings);
+        if ($date && $date instanceof DateTime) {
+            if ($this->displayTimezone != null) {
+                $date->setTimezone(new DateTimeZone($this->displayTimezone));
+            }
+            $value = $date->format($this->displayFormat);
+            if ($this->_doTranslate) {
+                $value = $this->translateDate($value, $this->displayFormat);
+            }
+            return $value;
+        }
+        return null;
     }
 
     /**
@@ -342,6 +364,10 @@ class DateControl extends InputWidget
         }
         if (empty($this->saveTimezone)) {
             $this->saveTimezone = $this->_module->getSaveTimezone();
+        }
+        // skip timezone validations when using date only inputs
+        if ($this->type === self::FORMAT_DATE) {
+            $this->displayTimezone = $this->saveTimezone = null;
         }
         if ($this->autoWidget) {
             $this->_widgetSettings = [
@@ -381,36 +407,39 @@ class DateControl extends InputWidget
      */
     protected function getDisplayInput()
     {
+        $name = ($this->hasModel() ? $this->attribute : $this->name) . '-' . $this->options['id'];
         $value = empty($this->value) ? '' : $this->getDisplayValue($this->value);
         if (!$this->isWidget()) {
             if (empty($this->options['class'])) {
                 $this->options['class'] = 'form-control';
             }
-            return Html::textInput($this->_displayAttribName, $value, $this->options);
+            return Html::textInput($name, $value, $this->options);
         }
+        $opts = $this->widgetOptions;
         if (!empty($this->displayFormat) && $this->autoWidget) {
             $defaultOptions = Module::defaultWidgetOptions($this->type, $this->displayFormat);
-            $this->widgetOptions = ArrayHelper::merge($defaultOptions, $this->widgetOptions);
+            $opts = ArrayHelper::merge($defaultOptions, $opts);
         }
         if (!empty($this->_widgetSettings[$this->type]['options'])) {
-            $this->widgetOptions = ArrayHelper::merge(
-                $this->_widgetSettings[$this->type]['options'], $this->widgetOptions
+            $opts = ArrayHelper::merge(
+                $this->_widgetSettings[$this->type]['options'], $opts
             );
         }
-        unset($this->widgetOptions['model'], $this->widgetOptions['attribute']);
-        $this->widgetOptions['name'] = $this->_displayAttribName;
-        $this->widgetOptions['value'] = $value;
+        unset($opts['model'], $opts['attribute']);
+        $opts['name'] = $name;
+        $opts['value'] = $value;
         /**
          * @var InputWidget $class
          */
         $class = $this->widgetClass;
-        if (!property_exists($class, 'disabled')) {
-            unset($this->widgetOptions['disabled']);
+        if (property_exists($class, 'disabled')) {
+            $opts['disabled'] = $this->disabled;
         }
-        if (!property_exists($class, 'readonly')) {
-            unset($this->widgetOptions['readonly']);
+        if (property_exists($class, 'readonly')) {
+            $opts['readonly'] = $this->readonly;
         }
-        return $class::widget($this->widgetOptions);
+        $this->widgetOptions = $opts;
+        return $class::widget($opts);
     }
 
     /**
@@ -432,36 +461,6 @@ class DateControl extends InputWidget
         return $this->hasModel() ?
             Html::activeHiddenInput($this->model, $this->attribute, $this->saveOptions) :
             Html::hiddenInput($this->name, $this->value, $this->saveOptions);
-    }
-
-    /**
-     * Gets the formatted display date value.
-     *
-     * @param string $data the input date data.
-     *
-     * @return string
-     */
-    protected function getDisplayValue($data)
-    {
-        /**
-         * Fix to prevent DateTime defaulting the time
-         * part to current time, for FORMAT_DATE
-         */
-        $saveDate = $data;
-        $saveFormat = $this->saveFormat;
-        $settings = $this->_doTranslate ? ArrayHelper::getValue($this->pluginOptions, 'dateSettings', []) : [];
-        $date = static::getTimestamp($saveDate, $saveFormat, $this->saveTimezone, $settings);
-        if ($date && $date instanceof DateTime) {
-            if ($this->displayTimezone != null) {
-                $date->setTimezone(new DateTimeZone($this->displayTimezone));
-            }
-            $value = $date->format($this->displayFormat);
-            if ($this->_doTranslate) {
-                $value = $this->translateDate($value, $this->displayFormat);
-            }
-            return $value;
-        }
-        return null;
     }
 
     /**
@@ -526,7 +525,7 @@ class DateControl extends InputWidget
         $this->pluginOptions = ArrayHelper::merge(
             [
                 'idSave' => $this->saveOptions['id'],
-                'url' => $this->ajaxConversion ? Url::to([$this->_module->convertAction]) : '',
+                'url' => $this->ajaxConversion ? Url::to($this->_module->convertAction) : '',
                 'type' => $this->type,
                 'saveFormat' => $this->saveFormat,
                 'dispFormat' => $this->displayFormat,
@@ -535,11 +534,10 @@ class DateControl extends InputWidget
                 'asyncRequest' => $this->asyncRequest,
             ], $pluginOptions
         );
-        $this->registerPlugin($this->_pluginName);
-		
-		if ($this->isWidget() && !empty($this->options[$this->_dataVar])) {
-			$this->widgetOptions['options'][$this->_dataVar] = $this->options[$this->_dataVar];
-			unset($this->options[$this->_dataVar]);
-		}
+        $this->registerPlugin($this->pluginName);
+        $pluginData = 'data-krajee-' . $this->pluginName;
+        if (!empty($this->options[$pluginData])) {
+            $this->widgetOptions['options'][$pluginData] = $this->options[$pluginData];
+        }
     }
 }
